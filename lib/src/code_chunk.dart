@@ -138,16 +138,24 @@ class CodeChunkController extends ValueNotifier<List<CodeChunk>> {
   @pragma('vm:entry-point')
   static _CodeChunkAnalyzeResult _run(_CodeChunkAnalyzePayload payload) {
     final List<CodeChunk> chunks = payload.analyzer.run(payload.codeLines);
-    final List<int> invalidCollapsedChunkIndexes = [];
-    for (int i = 0; i < payload.codeLines.length; i++) {
-      if (!payload.codeLines[i].chunkParent) {
-        continue;
+    final HashMap<int, int> chunkIndexMapping = () {
+      final dst = HashMap<int, int>();
+      for (int i = 0; i < chunks.length; i++) {
+        final chunk = chunks[i];
+        dst[chunk.index] = i;
       }
-      final int index = chunks.indexWhere((e) => e.index == i);
+      return dst;
+    }();
+    final List<int> invalidCollapsedChunkIndexes = [];
+    payload.codeLines.foreachCodeLine((codeLine, i) {
+      if (!codeLine.chunkParent) {
+        return;
+      }
+      final int index = chunkIndexMapping[i] ?? -1;
       if (index < 0 || chunks[index].canCollapse) {
         invalidCollapsedChunkIndexes.add(i);
       }
-    }
+    });
     return _CodeChunkAnalyzeResult(chunks, invalidCollapsedChunkIndexes);
   }
 
@@ -215,21 +223,24 @@ class DefaultCodeChunkAnalyzer implements CodeChunkAnalyzer {
     final List<CodeChunk> chunks = [];
     final List<CodeChunkSymbol> stack = [];
     final List<CodeChunkSymbol> chunkSymbols = parse(codeLines);
+    final HashSet<int> chunkIndices = HashSet<int>();
     for (final CodeChunkSymbol symbol in chunkSymbols) {
-      if (_chunkSymbols.keys.contains(symbol.value)) {
+      if (_chunkSymbols.containsKey(symbol.value)) {
         stack.add(symbol);
         continue;
       }
       while(stack.isNotEmpty) {
         final CodeChunkSymbol pop = stack.removeLast();
         if (_chunkSymbols[pop.value] == symbol.value) {
-          if (symbol.index - pop.index >= 1 && chunks.where((e) => e.index == pop.index).isEmpty) {
+          if (symbol.index - pop.index >= 1 && !chunkIndices.contains(pop.index)) {
             chunks.add(CodeChunk(pop.index, symbol.index));
+            chunkIndices.add(pop.index);
           }
           break;
         }
       }
     }
+    chunkIndices.clear();
     // sort by index
     chunks.sort((a, b) => a.index - b.index);
     return chunks;
@@ -238,13 +249,13 @@ class DefaultCodeChunkAnalyzer implements CodeChunkAnalyzer {
   @visibleForTesting
   List<CodeChunkSymbol> parse(CodeLines codeLines) {
     final List<CodeChunkSymbol> symbols = [];
-    for (int i = 0; i < codeLines.length; i++) {
-      final String text = codeLines[i].text.trim();
+    codeLines.foreachCodeLine((codeLine, i) {
+      final String text = codeLine.text.trim();
       if (text.isEmpty) {
-        continue;
+        return;
       }
       symbols.addAll(_parseLine(text, i));
-    }
+    });
     return symbols;
   }
 

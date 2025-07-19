@@ -87,6 +87,16 @@ class CodeLines {
     throw RangeError.range(index, 0, length - 1);
   }
 
+  void foreachCodeLine(void Function(CodeLine, int) block) {
+    int i = 0;
+    for (final segment in segments) {
+      for (final codeLine in segment.codeLines) {
+        block(codeLine, i);
+        i += 1;
+      }
+    }
+  }
+
   void add(CodeLine value) {
     if (isEmpty || segments.last.length >= _kCodeLineSegamentDefaultSize) {
       segments.add(CodeLineSegment.of(
